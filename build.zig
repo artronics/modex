@@ -1,5 +1,15 @@
 const std = @import("std");
 
+const LibData = struct {
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    test_step: *std.Build.Step,
+    install_test_step: *std.Build.Step,
+    path: []const u8,
+    name: []const u8,
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -32,32 +42,42 @@ pub fn build(b: *std.Build) void {
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
     const test_step = b.step("test", "Run unit tests");
-    install_lib(b, target, optimize, test_step, "src/rope/root.zig", "rope");
+    const install_test_step = b.step("install_test", "Create test binaries for debugging");
+    const rope_lib: LibData = .{
+        .b = b,
+        .target = target,
+        .optimize = optimize,
+        .name = "rope",
+        .path = "src/rope/root.zig",
+        .test_step = test_step,
+        .install_test_step = install_test_step,
+    };
+    install_lib(rope_lib);
 
     test_step.dependOn(&run_exe_unit_tests.step);
 }
 
-// FIXME: extract params into a struct
-fn install_lib(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, test_step: *std.Build.Step, path: []const u8, name: []const u8) void {
-    const mod = b.createModule(.{
-        .root_source_file = b.path(path),
-        .target = target,
-        .optimize = optimize,
+fn install_lib(d: LibData) void {
+    const mod = d.b.createModule(.{
+        .root_source_file = d.b.path(d.path),
+        .target = d.target,
+        .optimize = d.optimize,
     });
-    const lib = b.addLibrary(.{
+    const lib = d.b.addLibrary(.{
         .linkage = .static,
-        .name = name,
+        .name = d.name,
         .root_module = mod,
     });
-    b.installArtifact(lib);
+    d.b.installArtifact(lib);
 
-    const tests = b.addTest(.{ .root_module = mod, .name = name });
-    const test_artifact = b.addInstallArtifact(
+    const tests = d.b.addTest(.{ .root_module = mod, .name = d.name });
+    const test_artifact = d.b.addInstallArtifact(
         tests,
         .{ .dest_dir = .{ .override = .{ .custom = "tests" } } },
     );
-    const run_tests = b.addRunArtifact(tests);
+    const run_tests = d.b.addRunArtifact(tests);
     run_tests.step.dependOn(&test_artifact.step);
+    d.install_test_step.dependOn(&test_artifact.step);
 
-    test_step.dependOn(&run_tests.step);
+    d.test_step.dependOn(&run_tests.step);
 }
