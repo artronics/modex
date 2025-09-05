@@ -1,12 +1,49 @@
-pub fn main() !void {
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
+const std = @import("std");
+const dvui = @import("dvui");
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+var message: []const u8 = "Press the button";
 
-    try bw.flush(); // Don't forget to flush!
+pub const dvui_app: dvui.App = .{
+    .config = .{
+        .options = .{
+            .size = .{ .w = 640, .h = 360 },
+            .min_size = .{ .w = 320, .h = 200 },
+            .title = "DVUI SDL3 Hello",
+            .window_init_options = .{},
+        },
+    },
+    .frameFn = frame,
+};
+
+// Use the dvui.App-provided entry points
+pub const main = dvui.App.main;
+pub const panic = dvui.App.panic;
+pub const std_options: std.Options = .{ .logFn = dvui.App.logFn };
+
+fn frame() !dvui.App.Result {
+    // Optional scaling helper (good defaults)
+    var scaler = dvui.scale(@src(), .{ .scale = &dvui.currentWindow().content_scale, .pinch_zoom = .global }, .{ .rect = .cast(dvui.windowRect()) });
+    defer scaler.deinit();
+
+    // Root container for the window content
+    var root = dvui.box(@src(), .{ .dir = .vertical}, .{
+        .style = .window,
+        .expand = .both,
+        .background = true,
+        // .padding = .{ .l = 12, .t = 12, .r = 12, .b = 12 },
+    });
+    defer root.deinit();
+
+    // Button: clicking it sets the label text
+    if (dvui.button(@src(), "Say Hello", .{}, .{})) {
+        message = "Hello, world!";
+    }
+
+    // Label: shows current message
+    _ = dvui.label(@src(), "yo", .{}, .{});
+
+    // Keep running
+    return .ok;
 }
 
 test "fuzz example" {
@@ -19,5 +56,3 @@ test "fuzz example" {
     };
     try std.testing.fuzz(Context{}, Context.testOne, .{});
 }
-
-const std = @import("std");

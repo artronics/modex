@@ -25,6 +25,21 @@ pub fn build(b: *std.Build) void {
         .name = "modex",
         .root_module = exe_mod,
     });
+
+    const backend = b.option([]const u8, "backend", "Which backend to use: sdl3|sdl2") orelse "sdl3";
+    const dvui_dep = b.dependency("dvui", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    if (std.mem.eql(u8, backend, "sdl3")) {
+        exe.root_module.addImport("dvui", dvui_dep.module("dvui_sdl3"));
+        exe.root_module.addImport("backend", dvui_dep.module("sdl3"));
+        exe.linkSystemLibrary("SDL3");
+    } else {
+        @panic("Unsupported backend; choose -Dbackend=sdl3 or -Dbackend=sdl2");
+    }
+
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -80,4 +95,52 @@ fn install_lib(d: LibData) void {
     d.install_test_step.dependOn(&test_artifact.step);
 
     d.test_step.dependOn(&run_tests.step);
+}
+
+pub fn build2(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const backend = b.option([]const u8, "backend", "Which backend to use: sdl3|sdl2") orelse "sdl3";
+
+    const exe = b.addExecutable(.{
+        .name = "hello-dvui",
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Pull in DVUI
+    const dvui_dep = b.dependency("dvui", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Select and wire the backend and dvui module
+    if (std.mem.eql(u8, backend, "sdl3")) {
+        exe.root_module.addImport("dvui", dvui_dep.module("dvui_sdl3"));
+        exe.root_module.addImport("backend", dvui_dep.module("sdl3"));
+
+        // On your system, install SDL3 dev files, then link it:
+        // Linux: libSDL3-dev or equivalent
+        // macOS: brew install sdl3
+        // Windows: vcpkg install sdl3 or ship the DLL
+        exe.linkSystemLibrary("SDL3");
+    } else if (std.mem.eql(u8, backend, "sdl2")) {
+        exe.root_module.addImport("dvui", dvui_dep.module("dvui_sdl2"));
+        exe.root_module.addImport("backend", dvui_dep.module("sdl2"));
+        exe.linkSystemLibrary("SDL2");
+    } else {
+        @panic("Unsupported backend; choose -Dbackend=sdl3 or -Dbackend=sdl2");
+    }
+
+    // Optional: enable LLD if you run into linking issues (platform-dependent)
+    // exe.use_lld = true;
+
+    b.installArtifact(exe);
+
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.stdio = .inherit;
+    const run_step = b.step("run", "Run hello-dvui");
+    run_step.dependOn(&run_cmd.step);
 }

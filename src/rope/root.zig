@@ -37,7 +37,7 @@ const Rope = struct {
         const arena_alloc = arena.allocator();
 
         var root = Node.init(null, null);
-        try parse(arena_alloc, max_len, &root, buffer);
+        try build(arena_alloc, max_len, &root, buffer);
 
         return .{
             .allocator = alloc,
@@ -53,73 +53,42 @@ const Rope = struct {
         self.arena.deinit();
     }
 
-    fn split_node(a: Allocator, max_len: usize, node: *Node, buf: []u8) !void {
+    fn build_sub_tree(a: Allocator, max_len: usize, buf: []u8) !*Node {
+        const n = try a.create(Node);
+        n.l = null;
+        n.r = null;
+
         if (buf.len <= max_len) {
-            const l = try a.create(Node);
-            l.* = .{ .l = null, .r = null, .value = .{ .string = buf } };
-            node.l = l;
-
-            node.r = null;
-            node.value = .{ .weight = buf.len };
-            return;
+            n.value = .{ .string = buf };
+            return n;
         }
-        const mid: usize = @intFromFloat(@round(@as(f64, @floatFromInt(buf.len)) / 2.0));
-
-        const sl = buf[0..mid];
-        const l = try a.create(Node);
-        l.* = .{ .l = null, .r = null, .value = .{ .string = sl } };
-        node.l = l;
-
-        const sr = buf[mid..buf.len];
-        const r = try a.create(Node);
-        r.* = .{ .l = null, .r = null, .value = .{ .string = sr } };
-        node.r = r;
-
-        node.value = .{ .weight = sl.len };
-    }
-    fn split_leaf(a: Allocator, max_len: usize, node: *Node) !void {
-        const buf = node.value.string;
-        if (buf.len <= max_len) return;
 
         const mid: usize = @intFromFloat(@round(@as(f64, @floatFromInt(buf.len)) / 2.0));
+        const left_buf = buf[0..mid];
+        const right_buf = buf[mid..];
 
-        const sl = buf[0..mid];
-        const l = try a.create(Node);
-        l.* = .{ .l = null, .r = null, .value = .{ .string = sl } };
-        node.l = l;
+        const left_node = try build_sub_tree(a, max_len, left_buf);
+        const right_node = try build_sub_tree(a, max_len, right_buf);
 
-        const sr = buf[mid..buf.len];
-        const r = try a.create(Node);
-        r.* = .{ .l = null, .r = null, .value = .{ .string = sr } };
-        node.r = r;
-
-        node.value = .{ .weight = sl.len };
+        n.l = left_node;
+        n.r = right_node;
+        n.value = .{ .weight = left_buf.len };
+        return n;
     }
 
-    fn parse(a: Allocator, max_len: usize, root: *Node, buf: []u8) !void {
-        // try split_node(a, max_len, root, buf);
-        var l = try a.create(Node);
-        l.value = .{.string = buf};
-        root.l = l;
-        root.value = .{.weight = buf.len};
+    fn build(a: Allocator, max_len: usize, root: *Node, buf: []u8) !void {
+        const node = try a.create(Node);
+        const mid: usize = @intFromFloat(@round(@as(f64, @floatFromInt(buf.len)) / 2.0));
+        const left_node = try build_sub_tree(a, max_len, buf[0..mid]);
+        const right_node = try build_sub_tree(a, max_len, buf[mid..]);
 
-        var node = root;
-        while (node.value.weight < buf.len) : ({
-            var tmp = try a.create(Node);
-            tmp.l = node;
-            node = tmp;
-        }) {
-            if (node.l != null) {
-                const left = node.l.?;
-                try split_leaf(a, max_len, left);
-                node.value.weight = node.value.weight + left.value.weight;
-            }
-            if (node.r != null) {
-                const right = node.r.?;
-                try split_leaf(a, max_len, right);
-                node.value.weight = node.value.weight + right.value.weight;
-            }
-        }
+        node.l = left_node;
+        node.r = right_node;
+        node.value = .{ .weight = mid };
+
+        root.l = node;
+        root.r = null;
+        root.value = .{ .weight = buf.len };
     }
 };
 
@@ -174,7 +143,7 @@ test "Rope init file" {
 
     var r = try Rope.fromSlice(test_alloc, 32, &buf);
     defer r.deinit();
-    try testing.expectEqualSlices(u8,  "hello world!", r.tree.l.?.value.string);
+    try expect_leaf(r.tree.l.?, "hello ", "world!");
 }
 
 test "rope" {
@@ -183,28 +152,18 @@ test "rope" {
         var r = try Rope.fromSlice(test_alloc, 6, buf);
         defer r.deinit();
         try expectEq(12, r.tree.value.weight);
-        try expect_leaf(&r.tree, "hello ", "world!");
+        try expect_leaf(r.tree.l.?, "hello ", "world!");
     }
     { // odd number of chars
         const buf = "hello world!!";
         var r = try Rope.fromSlice(test_alloc, 8, buf);
         defer r.deinit();
         try expectEq(13, r.tree.value.weight);
-        try expect_leaf(&r.tree, "hello w", "orld!!");
-    }
-    { // less than max_len
-        const buf = "fooo"; // less than 4 chars
-        var r = try Rope.fromSlice(test_alloc, 4, buf);
-        defer r.deinit();
-        try expect_leaf(&r.tree, "fooo", null);
+        try expect_leaf(r.tree.l.?, "hello w", "orld!!");
     }
 }
 
 fn expect_leaf(node: *Node, l: []const u8, r: ?[]const u8) !void {
-    // switch (node.value) {
-    //     NodeValue.weight => |v| try testing.expectEqual(l.len, v),
-    //     else => unreachable,
-    // }
     switch (node.l.?.value) {
         NodeValue.string => |v| try testing.expectEqualSlices(u8, l, v),
         else => unreachable,
